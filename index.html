@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>共有タイマー</title>
+  <style>
+    body { font-family: system-ui, sans-serif; text-align: center; padding-top: 50px; background: #f4f4f9; }
+    #timer { font-size: 5rem; font-weight: bold; color: #333; margin: 20px 0; }
+    .btn-group button { font-size: 1.1rem; padding: 12px 24px; margin: 5px; cursor: pointer; border-radius: 8px; border: none; background: #007bff; color: white; font-weight: bold; }
+    .btn-group button:hover { background: #0056b3; }
+    #share-box { margin-top: 30px; display: none; background: #fff; padding: 20px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    input[type="text"] { width: 80%; padding: 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <h1>URL共有型 同期タイマー</h1>
+  <div id="timer">--:--</div>
+
+  <div class="btn-group">
+    <button onclick="setTimer(1)">1分セット</button>
+    <button onclick="setTimer(5)">5分セット</button>
+    <button onclick="setTimer(10)">10分セット</button>
+  </div>
+
+  <div id="share-box">
+    <p>👇 **このURLをコピーして全員に共有してください**</p>
+    <input type="text" id="share-url" readonly onclick="this.select()">
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const endParam = urlParams.get('end');
+    let endTime = endParam ? parseInt(endParam, 10) : null;
+
+    if (endTime) {
+      document.getElementById('share-box').style.display = 'inline-block';
+      document.getElementById('share-url').value = window.location.href;
+      startCountdown();
+    }
+
+    function setTimer(minutes) {
+      endTime = Date.now() + (minutes * 60 * 1000);
+      const newUrl = `${window.location.origin}${window.location.pathname}?end=${endTime}`;
+      window.history.pushState({ path: newUrl }, '', newUrl);
+
+      document.getElementById('share-url').value = newUrl;
+      document.getElementById('share-box').style.display = 'inline-block';
+
+      startCountdown();
+    }
+
+    function startCountdown() {
+      function update() {
+        const now = Date.now();
+        const diff = Math.max(0, Math.floor((endTime - now) / 1000));
+
+        const m = String(Math.floor(diff / 60)).padStart(2, '0');
+        const s = String(diff % 60).padStart(2, '0');
+        
+        document.getElementById('timer').innerText = `${m}:${s}`;
+
+        if (diff <= 0) {
+          document.getElementById('timer').innerText = "終了！";
+        } else {
+          requestAnimationFrame(() => setTimeout(update, 200));
+        }
+      }
+      update();
+    }
+  </script>
+</body>
+</html>
