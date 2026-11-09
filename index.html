@@ -680,13 +680,9 @@
     // ============================================================
     // 管理者 / モーダル・認証処理
     // ============================================================
+    // 操作開放ボタン押下時 (ONにするときもOFFにするときもパスワードを求める)
     function handleFreeButtonClick() {
-      if (isFreeMode) {
-        timerRef.update({ isFreeMode: false });
-        showToast('操作制限を有効にしました');
-      } else {
-        openPasswordModal('free');
-      }
+      openPasswordModal('free');
     }
 
     function handleAdminButtonClick() {
@@ -736,8 +732,15 @@
           document.getElementById('btn-admin-toggle').innerText = "🔓 管理者解除中";
           document.getElementById('btn-admin-toggle').classList.add("unlocked");
         } else if (pendingAction === 'free') {
-          timerRef.update({ isFreeMode: true });
-          showToast('操作パネルを開放しました（全端末同期済み）');
+          // 現在と反対の状態へ切り替えて全端末に同期
+          const nextFreeState = !isFreeMode;
+          timerRef.update({ isFreeMode: nextFreeState });
+          
+          if (nextFreeState) {
+            showToast('操作パネルを開放しました（全端末同期済み）');
+          } else {
+            showToast('操作制限を有効にしました（全端末同期済み）');
+          }
         }
         closePasswordModal();
       } else {
