@@ -4,56 +4,92 @@
   <meta charset="UTF-8">
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>連続ループタイマー</title>
+  <title>同期タイマー ver.2</title>
   <style>
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
     }
+    html, body {
+      height: 100vh;
+      overflow: hidden; /* スクロールを禁止し一画面に収める */
+    }
     body {
       font-family: system-ui, -apple-system, sans-serif;
       text-align: center;
-      padding: 10px;
-      background-color: #121212;
-      color: #e0e0e0;
-      min-height: 100vh;
+      padding: 8px 12px;
+      background-color: #0a0e21; /* 非常に暗い紺色 */
+      color: #e0e6ed;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
     }
 
+    /* 右上の管理者・開放バー */
+    .admin-bar {
+      width: 100%;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-bottom: 2px;
+    }
+    .btn-admin {
+      background: #1b243b;
+      color: #8a99ad;
+      border: 1px solid #2d3b59;
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    .btn-admin.unlocked {
+      background: #28a745;
+      color: #ffffff;
+      border-color: #28a745;
+    }
+    /* 操作開放ボタン用スタイル */
+    .btn-free {
+      background: #1b243b;
+      color: #8a99ad;
+      border: 1px solid #2d3b59;
+    }
+    .btn-free.active {
+      background: #17a2b8;
+      color: #ffffff;
+      border-color: #17a2b8;
+    }
+
     #status {
-      font-size: 1.8rem;
+      font-size: 3rem;
       font-weight: bold;
       color: #ffffff;
-      margin-top: 5px;
+      line-height: 1.2;
     }
     
-    /* --------------------------------------------------
-       タイマー枠（ダークモード最適化）
-    -------------------------------------------------- */
+    /* タイマー枠 */
     .timer-box {
-      border: 10px solid #333333;
+      border: 8px solid #253147;
       border-radius: 20px;
-      padding: 10px 0;
-      margin: 10px 0;
-      background-color: #000000 !important;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.6);
-      width: 96vw;
-      max-width: 96vw;
+      padding: 5px 0;
+      margin: 6px 0;
+      background-color: #03060d !important; /* 黒に近い超極暗ネイビー */
+      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+      width: 98vw;
+      max-width: 98vw;
       display: flex;
       justify-content: center;
       align-items: center;
       flex: 1;
-      max-height: 55vh;
       overflow: hidden;
     }
 
     #timer {
       font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
-      font-size: clamp(8rem, 36vw, 26rem);
+      font-size: clamp(10rem, 40vw, 29rem);
       font-weight: 2000;
       line-height: 1;
       font-variant-numeric: tabular-nums;
@@ -64,17 +100,15 @@
     /* --------------------------------------------------
        点滅アニメーション設定
     -------------------------------------------------- */
-    /* 警告（残り30秒以下〜15秒超：黄色↔ダークグレーで2秒周期のゆっくり点滅） */
     body.warning .timer-box {
       animation: blink-warning-border 2s steps(1) infinite;
     }
 
     @keyframes blink-warning-border {
-      0% { border-color: #333333; }
+      0% { border-color: #253147; }
       50% { border-color: #ff9800; }
     }
 
-    /* 危険（残り15秒以下：赤↔ダークグレーで0.4秒周期の高速点滅） */
     body.danger .timer-box {
       animation: blink-danger-border 0.4s steps(1) infinite;
     }
@@ -84,119 +118,244 @@
       50% { border-color: #1a0000; }
     }
 
+    body.pause-animation.warning .timer-box {
+      animation: none !important;
+      border-color: #ff9800 !important;
+    }
+
+    body.pause-animation.danger .timer-box {
+      animation: none !important;
+      border-color: #ff3333 !important;
+    }
+
     body.interval .timer-box {
       border-color: #4A5568 !important;
       animation: none;
     }
     body.interval #timer {
-      font-size: clamp(3rem, 12vw, 7rem);
+      font-size: clamp(4.5rem, 15vw, 9rem);
       color: #888888 !important;
     }
 
     /* --------------------------------------------------
-       入力フォーム・操作エリア
+       入力・操作エリア（極暗ネイビー基調）
     -------------------------------------------------- */
     .input-card {
-      background: #1e1e1e;
-      border: 1px solid #333;
-      padding: 12px 20px;
+      display: none; /* ロック中は非表示 */
+      background: #131a2c;
+      border: 1px solid #253147;
+      padding: 8px 12px;
       border-radius: 12px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.6);
       width: 100%;
-      max-width: 340px;
+      max-width: 900px;
+      color: #e0e6ed;
+      margin-bottom: 4px;
+    }
+
+    /* 管理者モード時または開放モード時に入力カードを表示 */
+    body.admin-mode .input-card,
+    body.free-mode .input-card {
       display: flex;
-      flex-direction: column;
-      gap: 10px;
-      color: #e0e0e0;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 10px 14px;
     }
     
-    .input-rows {
+    .input-group {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      align-items: center;
+      gap: 10px;
     }
     
     .input-item {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      font-size: 1.1rem;
+      gap: 4px;
+      font-size: 0.95rem;
       font-weight: bold;
+      white-space: nowrap;
     }
     
     .input-item input {
-      width: 80px;
-      padding: 6px;
-      font-size: 1.1rem;
+      width: 55px;
+      padding: 4px 2px;
+      font-size: 1rem;
       text-align: center;
-      background: #2a2a2a;
+      background: #1b243b;
       color: #ffffff;
-      border: 1px solid #444;
+      border: 1px solid #2d3b59;
       border-radius: 6px;
     }
-    .input-item input:focus {
-      outline: none;
-      border-color: #007bff;
+
+    /* ボタン群 */
+    .btn-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: nowrap;
     }
 
-    /* ボタン共通 */
     .btn {
-      font-size: 1.1rem;
-      padding: 12px;
-      border-radius: 8px;
+      font-size: 0.95rem;
+      padding: 8px 12px;
+      border-radius: 6px;
       border: none;
       color: white;
       font-weight: bold;
       cursor: pointer;
+      white-space: nowrap;
     }
     .btn:active {
-      transform: scale(0.98);
+      transform: scale(0.96);
+    }
+
+    .btn-save {
+      background: #17a2b8;
     }
 
     .btn-start {
-      width: 100%;
       background: #28a745;
-    }
-    .btn-start:hover {
-      background: #218838;
-    }
-
-    .btn-group {
-      display: flex;
-      gap: 8px;
-      width: 100%;
-    }
-
-    .btn-group .btn {
-      flex: 1;
     }
 
     .btn-pause {
       background: #d39e00;
       color: #ffffff;
     }
-    .btn-pause:hover {
-      background: #b78a00;
-    }
 
     .btn-skip {
       background: #0069d9;
     }
-    .btn-skip:hover {
-      background: #0056b3;
+
+    .btn-stop {
+      background: #dc3545;
     }
 
-    /* 無効化（グレーアウト）時のスタイル */
     .btn:disabled {
-      background: #333333 !important;
-      color: #666666 !important;
-      cursor: not-allowed;
-      transform: none;
-      opacity: 0.6;
+      background: #1b243b !important;
+      color: #4f5d75 !important;
+      cursor: not-allowed !important;
+      transform: none !important;
+      opacity: 0.5;
+    }
+
+    /* --------------------------------------------------
+       保存用フェードアウトトースト通知
+    -------------------------------------------------- */
+    .toast-notification {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(23, 162, 184, 0.95);
+      color: #ffffff;
+      padding: 10px 24px;
+      border-radius: 20px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+
+    .toast-notification.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* --------------------------------------------------
+       パスワード入力用 モーダルスタイル
+    -------------------------------------------------- */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(3, 6, 13, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-content {
+      background: #131a2c;
+      border: 1px solid #253147;
+      padding: 20px 16px;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+      width: 90%;
+      max-width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-align: center;
+    }
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #fff;
+    }
+    .modal-input {
+      width: 100%;
+      padding: 8px;
+      font-size: 1.1rem;
+      text-align: center;
+      background: #1b243b;
+      color: #fff;
+      border: 1px solid #2d3b59;
+      border-radius: 6px;
+    }
+    .modal-input.error {
+      border-color: #dc3545;
+      box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
+    }
+    .error-msg {
+      color: #dc3545;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .error-msg.active {
+      display: block;
+    }
+    .modal-btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    .modal-btn {
+      flex: 1;
+      padding: 8px;
+      font-size: 0.95rem;
+      border-radius: 6px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .modal-btn-cancel {
+      background: #253147;
+      color: #8a99ad;
+    }
+    .modal-btn-submit {
+      background: #28a745;
+      color: white;
     }
   </style>
 </head>
 <body>
+
+  <!-- 保存完了トースト通知 -->
+  <div id="toast" class="toast-notification">設定した時間を保存しました</div>
+
+  <div class="admin-bar">
+    <button type="button" id="btn-free-toggle" class="btn-admin btn-free" onclick="handleFreeButtonClick()">🔓 操作開放: OFF</button>
+    <button type="button" id="btn-admin-toggle" class="btn-admin" onclick="handleAdminButtonClick()">🔒 管理者</button>
+  </div>
 
   <div>
     <div id="status">準備中</div>
@@ -206,31 +365,48 @@
     <div id="timer">00:00</div>
   </div>
 
+  <!-- 管理者モード時または開放時に表示される操作パネル -->
   <div class="input-card">
-    <div class="input-rows">
+    <div class="input-group">
       <div class="input-item">
-        <label for="part1-min">演奏時間</label>
-        <div>
-          <input type="number" id="part1-min" value="0.5" min="0" step="0.1"> 分
-        </div>
+        <label for="part1-min">演奏</label>
+        <input type="number" id="part1-min" value="0.5" min="0" step="0.1">分
       </div>
       <div class="input-item">
-        <label for="part2-min">転換時間</label>
-        <div>
-          <input type="number" id="part2-min" value="0.2" min="0" step="0.1"> 分
-        </div>
+        <label for="part2-min">転換</label>
+        <input type="number" id="part2-min" value="0.2" min="0" step="0.1">分
       </div>
     </div>
     
-    <button type="button" class="btn btn-start" onclick="startTimer()">タイマー開始</button>
-    
     <div class="btn-group">
+      <button type="button" id="btn-save" class="btn btn-save" onclick="saveTimerSettings()">保存</button>
+      <button type="button" id="btn-start" class="btn btn-start" onclick="startTimer()">開始</button>
       <button type="button" id="btn-pause" class="btn btn-pause" onclick="togglePause()" disabled>一時停止</button>
       <button type="button" id="btn-skip" class="btn btn-skip" onclick="skipPart()" disabled>スキップ</button>
+      <button type="button" id="btn-reset" class="btn btn-stop" onclick="resetTimer()" disabled>リセット</button>
+    </div>
+  </div>
+
+  <!-- パスワード入力用モーダルポップアップ -->
+  <div class="modal-overlay" id="password-modal">
+    <div class="modal-content">
+      <div class="modal-title">管理者パスワード</div>
+      <input type="password" id="admin-pass-input" class="modal-input" placeholder="パスワード入力" onkeydown="handleModalKeyDown(event)">
+      <div class="error-msg" id="modal-error">パスワードが正しくありません</div>
+      <div class="modal-btn-group">
+        <button type="button" class="modal-btn modal-btn-cancel" onclick="closePasswordModal()">キャンセル</button>
+        <button type="button" class="modal-btn modal-btn-submit" onclick="submitPassword()">解除</button>
+      </div>
     </div>
   </div>
 
   <script>
+    // 正しい「fken」のSHA-256ハッシュ値
+    const ADMIN_PASSWORD_HASH = "5f21d4b4f4a56adc19582e435d09be3b25387d37a27e5562166d9ac058628185";
+    let isAdminUnlocked = false;
+    let isFreeMode = false;
+    let pendingAction = null; // モーダル認証時の目的（'admin' または 'free'）
+
     let timerInterval = null;
     let intervalTimeout = null;
     let targetEndTime = 0;
@@ -241,6 +417,152 @@
     let isPaused = false;
     let remainingMs = 0;
     let isRunning = false;
+    let toastTimeout = null;
+
+    // 入力文字列をSHA-256ハッシュに変換する関数
+    async function hashPassword(message) {
+      const msgUint8 = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // ページ読み込み時に保存された設定を自動読み込み
+    window.addEventListener('DOMContentLoaded', () => {
+      loadTimerSettings();
+    });
+
+    // 操作開放ボタン押下時
+    function handleFreeButtonClick() {
+      if (isFreeMode) {
+        // 解放中の場合はパスワード不要で即時ロック
+        isFreeMode = false;
+        document.body.classList.remove('free-mode');
+        const btn = document.getElementById('btn-free-toggle');
+        btn.innerText = "🔓 操作開放: OFF";
+        btn.classList.remove('active');
+        localStorage.setItem('loop_timer_free_mode', 'false');
+        showToast('操作制限を有効にしました');
+      } else {
+        // 開放ONにする場合はパスワード入力を求める
+        openPasswordModal('free');
+      }
+    }
+
+    // 管理者ボタン押下時
+    function handleAdminButtonClick() {
+      if (!isAdminUnlocked) {
+        openPasswordModal('admin');
+      } else {
+        isAdminUnlocked = false;
+        document.body.classList.remove('admin-mode');
+        document.getElementById('btn-admin-toggle').innerText = "🔒 管理者";
+        document.getElementById('btn-admin-toggle').classList.remove("unlocked");
+      }
+    }
+
+    function saveTimerSettings() {
+      const p1Val = document.getElementById('part1-min').value;
+      const p2Val = document.getElementById('part2-min').value;
+
+      localStorage.setItem('loop_timer_part1', p1Val);
+      localStorage.setItem('loop_timer_part2', p2Val);
+
+      showToast('設定した時間を保存しました');
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.innerText = message;
+      toast.classList.add('show');
+
+      if (toastTimeout !== null) {
+        clearTimeout(toastTimeout);
+      }
+
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2000);
+    }
+
+    function loadTimerSettings() {
+      const savedP1 = localStorage.getItem('loop_timer_part1');
+      const savedP2 = localStorage.getItem('loop_timer_part2');
+      const savedFree = localStorage.getItem('loop_timer_free_mode');
+
+      if (savedP1 !== null) {
+        document.getElementById('part1-min').value = savedP1;
+      }
+      if (savedP2 !== null) {
+        document.getElementById('part2-min').value = savedP2;
+      }
+      if (savedFree === 'true') {
+        isFreeMode = true;
+        document.body.classList.add('free-mode');
+        const btn = document.getElementById('btn-free-toggle');
+        if (btn) {
+          btn.innerText = "🔓 操作開放: ON";
+          btn.classList.add('active');
+        }
+      }
+    }
+
+    // モーダルの開閉制御
+    function openPasswordModal(action) {
+      pendingAction = action;
+      const modal = document.getElementById('password-modal');
+      const input = document.getElementById('admin-pass-input');
+      const errorMsg = document.getElementById('modal-error');
+      
+      input.value = '';
+      input.classList.remove('error');
+      errorMsg.classList.remove('active');
+      modal.classList.add('active');
+      
+      setTimeout(() => input.focus(), 100);
+    }
+
+    function closePasswordModal() {
+      document.getElementById('password-modal').classList.remove('active');
+      pendingAction = null;
+    }
+
+    function handleModalKeyDown(e) {
+      if (e.key === 'Enter') {
+        submitPassword();
+      }
+    }
+
+    // パスワードの認証処理（ハッシュ値による判定）
+    async function submitPassword() {
+      const input = document.getElementById('admin-pass-input');
+      const errorMsg = document.getElementById('modal-error');
+
+      const inputHash = await hashPassword(input.value);
+
+      if (inputHash === ADMIN_PASSWORD_HASH) {
+        if (pendingAction === 'admin') {
+          isAdminUnlocked = true;
+          document.body.classList.add('admin-mode');
+          document.getElementById('btn-admin-toggle').innerText = "🔓 管理者解除中";
+          document.getElementById('btn-admin-toggle').classList.add("unlocked");
+        } else if (pendingAction === 'free') {
+          isFreeMode = true;
+          document.body.classList.add('free-mode');
+          const btn = document.getElementById('btn-free-toggle');
+          btn.innerText = "🔓 操作開放: ON";
+          btn.classList.add('active');
+          localStorage.setItem('loop_timer_free_mode', 'true');
+          showToast('操作パネルを開放しました（設定保存済み）');
+        }
+        closePasswordModal();
+      } else {
+        input.classList.add('error');
+        errorMsg.classList.add('active');
+        input.focus();
+        input.select();
+      }
+    }
 
     function stopTimer() {
       if (timerInterval !== null) {
@@ -254,8 +576,14 @@
       isTransitioning = false;
       isPaused = false;
       isRunning = false;
-      document.body.className = '';
+      document.body.classList.remove('warning', 'danger', 'interval', 'pause-animation');
       updateControlButtons();
+    }
+
+    function resetTimer() {
+      stopTimer();
+      document.getElementById('status').innerText = "準備中";
+      document.getElementById('timer').innerText = "00:00";
     }
 
     function startTimer() {
@@ -268,7 +596,7 @@
       part2Ms = p2Val * 60 * 1000;
 
       if (part1Ms <= 0 && part2Ms <= 0) {
-        alert("分数を入力してください。");
+        showToast("分数を入力してください");
         document.getElementById('status').innerText = "準備中";
         document.getElementById('timer').innerText = "00:00";
         return;
@@ -285,6 +613,7 @@
       currentPart = part;
       isTransitioning = false;
       isPaused = false;
+      document.body.classList.remove('pause-animation');
       const duration = (currentPart === 1) ? part1Ms : part2Ms;
       targetEndTime = Date.now() + duration;
       
@@ -302,13 +631,12 @@
       const diffMs = Math.max(0, targetEndTime - now);
       const diffSec = Math.ceil(diffMs / 1000);
 
-      // 外枠の点滅制御（30秒以下で黄色・2秒周期 / 15秒以下で赤色・0.4秒周期）
+      // 外枠の点滅制御クラスの更新
+      document.body.classList.remove('danger', 'warning');
       if (diffSec <= 15 && diffSec > 0) {
-        document.body.className = 'danger';
+        document.body.classList.add('danger');
       } else if (diffSec <= 30 && diffSec > 0) {
-        document.body.className = 'warning';
-      } else {
-        document.body.className = '';
+        document.body.classList.add('warning');
       }
 
       // 時間表示
@@ -330,23 +658,20 @@
       const pauseBtn = document.getElementById('btn-pause');
 
       if (!isPaused) {
-        // 一時停止
         isPaused = true;
         remainingMs = Math.max(0, targetEndTime - Date.now());
         pauseBtn.innerText = "再開";
         
-        // 一時停止中は点滅アニメーションをストップ
-        document.body.className = '';
+        document.body.classList.add('pause-animation');
 
         const label = (currentPart === 1) ? '演奏中（一時停止）' : '転換中（一時停止）';
         document.getElementById('status').innerText = label;
       } else {
-        // 再開
         isPaused = false;
         targetEndTime = Date.now() + remainingMs;
         pauseBtn.innerText = "一時停止";
         
-        // 即時にタイマー表示・点滅クラスを再評価
+        document.body.classList.remove('pause-animation');
         updateTimer();
       }
     }
@@ -368,17 +693,18 @@
       }
 
       isPaused = false;
+      document.body.classList.remove('pause-animation');
       const pauseBtn = document.getElementById('btn-pause');
       if (pauseBtn) pauseBtn.innerText = "一時停止";
 
-      // インターバル（NEXT...）を挟まず直接次のパートへスキップ
       const targetPart = getNextPart();
       startPart(targetPart);
     }
 
     function triggerPartEnd() {
       isTransitioning = true;
-      document.body.className = 'interval';
+      document.body.classList.remove('warning', 'danger', 'pause-animation');
+      document.body.classList.add('interval');
       
       const endLabel = (currentPart === 1) ? '演奏終了！' : '転換終了！';
       document.getElementById('status').innerText = endLabel;
@@ -388,6 +714,7 @@
       const targetPart = getNextPart();
 
       intervalTimeout = setTimeout(() => {
+        document.body.classList.remove('interval');
         startPart(targetPart);
       }, 2000);
     }
@@ -395,11 +722,13 @@
     function updateControlButtons() {
       const pauseBtn = document.getElementById('btn-pause');
       const skipBtn = document.getElementById('btn-skip');
+      const resetBtn = document.getElementById('btn-reset');
 
       const active = isRunning && !isTransitioning;
       
       if (pauseBtn) pauseBtn.disabled = !active;
       if (skipBtn) skipBtn.disabled = !active;
+      if (resetBtn) resetBtn.disabled = !isRunning;
     }
   </script>
 </body>
