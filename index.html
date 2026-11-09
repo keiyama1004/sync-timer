@@ -402,7 +402,7 @@
 
   <script>
     // ============================================================
-    // ★ Firebase設定 (ここをFirebaseコンソールでコピーしたものに上書きしてください)
+    // ★ Firebase設定 (ご自身のFirebaseキーを貼り付けてください)
     // ============================================================
     const firebaseConfig = {
       apiKey: "AIzaSyDLScrTl21fqkamxUo16b6EDQ3OcFJwVws",
@@ -419,6 +419,17 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const timerRef = db.ref('timer');
+
+    // 端末の時計とFirebaseサーバー時刻との差分（ミリ秒）を取得
+    let serverTimeOffset = 0;
+    db.ref('.info/serverTimeOffset').on('value', (snap) => {
+      serverTimeOffset = snap.val() || 0;
+    });
+
+    // 補正された正確な現在時刻（ミリ秒）を返す関数
+    function getServerTime() {
+      return Date.now() + serverTimeOffset;
+    }
 
     // 「fken」のSHA-256ハッシュ値
     const ADMIN_PASSWORD_HASH = "5f21d4b4f4a56adc19582e435d09be3b25387d37a27e5562166d9ac058628185";
@@ -502,7 +513,8 @@
       if (state.isPaused) {
         diffMs = state.remainingMs || 0;
       } else {
-        diffMs = Math.max(0, (state.targetEndTime || 0) - Date.now());
+        // サーバー補正済み時刻（getServerTime）を使用してズレを解消
+        diffMs = Math.max(0, (state.targetEndTime || 0) - getServerTime());
       }
 
       const diffSec = Math.ceil(diffMs / 1000);
@@ -567,7 +579,7 @@
             timerRef.update({
               currentPart: nextPart,
               isTransitioning: false,
-              targetEndTime: Date.now() + nextDuration
+              targetEndTime: getServerTime() + nextDuration
             });
           }, 2000);
         }
@@ -611,7 +623,7 @@
         isPaused: false,
         isTransitioning: false,
         currentPart: startPart,
-        targetEndTime: Date.now() + duration,
+        targetEndTime: getServerTime() + duration,
         remainingMs: 0
       });
     }
@@ -620,13 +632,13 @@
       if (!localTimerState.isRunning || localTimerState.isTransitioning) return;
 
       if (!localTimerState.isPaused) {
-        const remainingMs = Math.max(0, localTimerState.targetEndTime - Date.now());
+        const remainingMs = Math.max(0, localTimerState.targetEndTime - getServerTime());
         timerRef.update({
           isPaused: true,
           remainingMs: remainingMs
         });
       } else {
-        const newEndTime = Date.now() + (localTimerState.remainingMs || 0);
+        const newEndTime = getServerTime() + (localTimerState.remainingMs || 0);
         timerRef.update({
           isPaused: false,
           targetEndTime: newEndTime
@@ -651,7 +663,7 @@
         isPaused: false,
         isTransitioning: false,
         currentPart: nextPart,
-        targetEndTime: Date.now() + duration
+        targetEndTime: getServerTime() + duration
       });
     }
 
