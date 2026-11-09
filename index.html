@@ -5,6 +5,11 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>同期タイマー ver.2</title>
+
+  <!-- Firebase SDK の読み込み -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
   <style>
     * {
       box-sizing: border-box;
@@ -51,7 +56,6 @@
       color: #ffffff;
       border-color: #28a745;
     }
-    /* 操作開放ボタン用スタイル */
     .btn-free {
       background: #1b243b;
       color: #8a99ad;
@@ -239,9 +243,7 @@
       opacity: 0.5;
     }
 
-    /* --------------------------------------------------
-       保存用フェードアウトトースト通知
-    -------------------------------------------------- */
+    /* トースト通知 */
     .toast-notification {
       position: fixed;
       top: 20px;
@@ -265,9 +267,7 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* --------------------------------------------------
-       パスワード入力用 モーダルスタイル
-    -------------------------------------------------- */
+    /* パスワード入力用 モーダルスタイル */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -365,7 +365,7 @@
     <div id="timer">00:00</div>
   </div>
 
-  <!-- 管理者モード時または開放時に表示される操作パネル -->
+  <!-- 操作パネル -->
   <div class="input-card">
     <div class="input-group">
       <div class="input-item">
@@ -387,7 +387,7 @@
     </div>
   </div>
 
-  <!-- パスワード入力用モーダルポップアップ -->
+  <!-- パスワード入力用モーダル -->
   <div class="modal-overlay" id="password-modal">
     <div class="modal-content">
       <div class="modal-title">管理者パスワード</div>
@@ -401,25 +401,37 @@
   </div>
 
   <script>
-    // 正しい「fken」のSHA-256ハッシュ値
+    // ============================================================
+    // ★ Firebase設定 (ここをFirebaseコンソールでコピーしたものに上書きしてください)
+    // ============================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLScrTl21fqkamxUo16b6EDQ3OcFJwVws",
+  authDomain: "fken-sync-timer-ver2.firebaseapp.com",
+  databaseURL: "https://fken-sync-timer-ver2-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "fken-sync-timer-ver2",
+  storageBucket: "fken-sync-timer-ver2.firebasestorage.app",
+  messagingSenderId: "598969440249",
+  appId: "1:598969440249:web:d2f22974e3d5eec8400f28",
+  measurementId: "G-G2EDDQXRV5"
+    };
+
+    // Firebase 初期化
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const timerRef = db.ref('timer');
+
+    // 「fken」のSHA-256ハッシュ値
     const ADMIN_PASSWORD_HASH = "5f21d4b4f4a56adc19582e435d09be3b25387d37a27e5562166d9ac058628185";
+    
     let isAdminUnlocked = false;
     let isFreeMode = false;
-    let pendingAction = null; // モーダル認証時の目的（'admin' または 'free'）
+    let pendingAction = null;
 
-    let timerInterval = null;
-    let intervalTimeout = null;
-    let targetEndTime = 0;
-    let currentPart = 1;
-    let part1Ms = 0;
-    let part2Ms = 0;
-    let isTransitioning = false;
-    let isPaused = false;
-    let remainingMs = 0;
-    let isRunning = false;
+    let timerLoopInterval = null;
+    let localTimerState = {};
     let toastTimeout = null;
 
-    // 入力文字列をSHA-256ハッシュに変換する関数
+    // SHA-256 ハッシュ関数
     async function hashPassword(message) {
       const msgUint8 = new TextEncoder().encode(message);
       const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
@@ -427,29 +439,244 @@
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // ページ読み込み時に保存された設定を自動読み込み
-    window.addEventListener('DOMContentLoaded', () => {
-      loadTimerSettings();
+    // ============================================================
+    // Firebase リアルタイム受信処理 (端末間で自動同期)
+    // ============================================================
+    timerRef.on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      localTimerState = data;
+
+      // 入力値の反映 (操作中でない場合のみ更新)
+      if (document.activeElement !== document.getElementById('part1-min')) {
+        document.getElementById('part1-min').value = data.part1Min ?? 0.5;
+      }
+      if (document.activeElement !== document.getElementById('part2-min')) {
+        document.getElementById('part2-min').value = data.part2Min ?? 0.2;
+      }
+
+      // 開放モード状態の反映
+      isFreeMode = !!data.isFreeMode;
+      const freeBtn = document.getElementById('btn-free-toggle');
+      if (isFreeMode) {
+        document.body.classList.add('free-mode');
+        freeBtn.innerText = "🔓 操作開放: ON";
+        freeBtn.classList.add('active');
+      } else {
+        document.body.classList.remove('free-mode');
+        freeBtn.innerText = "🔓 操作開放: OFF";
+        freeBtn.classList.remove('active');
+      }
+
+      renderLocalUI();
     });
 
-    // 操作開放ボタン押下時
+    // 画面ローカルのタイマー描画ループ (毎秒・ミリ秒を画面描画)
+    if (!timerLoopInterval) {
+      timerLoopInterval = setInterval(renderLocalUI, 100);
+    }
+
+    function renderLocalUI() {
+      const state = localTimerState;
+      if (!state.isRunning) {
+        document.body.classList.remove('warning', 'danger', 'interval', 'pause-animation');
+        document.getElementById('status').innerText = "準備中";
+        document.getElementById('timer').innerText = "00:00";
+        updateControlButtons(false, false);
+        return;
+      }
+
+      if (state.isTransitioning) {
+        document.body.classList.remove('warning', 'danger', 'pause-animation');
+        document.body.classList.add('interval');
+        const endLabel = (state.currentPart === 1) ? '演奏終了！' : '転換終了！';
+        document.getElementById('status').innerText = endLabel;
+        document.getElementById('timer').innerText = "NEXT...";
+        updateControlButtons(false, true);
+        return;
+      }
+
+      document.body.classList.remove('interval');
+      
+      let diffMs = 0;
+      if (state.isPaused) {
+        diffMs = state.remainingMs || 0;
+      } else {
+        diffMs = Math.max(0, (state.targetEndTime || 0) - Date.now());
+      }
+
+      const diffSec = Math.ceil(diffMs / 1000);
+
+      // 点滅スタイル
+      document.body.classList.remove('danger', 'warning');
+      if (diffSec <= 15 && diffSec > 0) {
+        document.body.classList.add('danger');
+      } else if (diffSec <= 30 && diffSec > 0) {
+        document.body.classList.add('warning');
+      }
+
+      if (state.isPaused) {
+        document.body.classList.add('pause-animation');
+      } else {
+        document.body.classList.remove('pause-animation');
+      }
+
+      // 時間テキスト表示
+      const m = String(Math.floor(diffSec / 60)).padStart(2, '0');
+      const s = String(diffSec % 60).padStart(2, '0');
+
+      let label = (state.currentPart === 1) ? '演奏中' : '転換中';
+      if (state.isPaused) label += '（一時停止）';
+
+      document.getElementById('status').innerText = label;
+      document.getElementById('timer').innerText = `${m}:${s}`;
+
+      // 一時停止ボタンテキスト
+      const pauseBtn = document.getElementById('btn-pause');
+      if (pauseBtn) pauseBtn.innerText = state.isPaused ? "再開" : "一時停止";
+
+      updateControlButtons(true, true);
+
+      // カウント終了時（複数端末から重複発火しないようTransactionで処理）
+      if (diffMs <= 0 && !state.isPaused && !state.isTransitioning) {
+        triggerPartEndServer();
+      }
+    }
+
+    // カウント終了・切り替え処理 (全端末で1回だけ安全に実行されるトランザクション)
+    function triggerPartEndServer() {
+      timerRef.transaction((current) => {
+        if (!current || !current.isRunning || current.isTransitioning) return current;
+        current.isTransitioning = true;
+        return current;
+      }, (error, committed, snapshot) => {
+        if (committed) {
+          setTimeout(() => {
+            const data = snapshot.val();
+            if (!data) return;
+
+            const p1Ms = (data.part1Min || 0) * 60 * 1000;
+            const p2Ms = (data.part2Min || 0) * 60 * 1000;
+
+            let nextPart = (data.currentPart === 1) ? 2 : 1;
+            if (nextPart === 2 && p2Ms <= 0) nextPart = 1;
+            if (nextPart === 1 && p1Ms <= 0) nextPart = 2;
+
+            const nextDuration = (nextPart === 1) ? p1Ms : p2Ms;
+
+            timerRef.update({
+              currentPart: nextPart,
+              isTransitioning: false,
+              targetEndTime: Date.now() + nextDuration
+            });
+          }, 2000);
+        }
+      });
+    }
+
+    // ============================================================
+    // ボタン操作（Firebaseへ状態を送信）
+    // ============================================================
+    function saveTimerSettings() {
+      const p1Val = parseFloat(document.getElementById('part1-min').value) || 0;
+      const p2Val = parseFloat(document.getElementById('part2-min').value) || 0;
+
+      timerRef.update({
+        part1Min: p1Val,
+        part2Min: p2Val
+      });
+
+      showToast('設定した時間を保存しました');
+    }
+
+    function startTimer() {
+      const p1Val = parseFloat(document.getElementById('part1-min').value) || 0;
+      const p2Val = parseFloat(document.getElementById('part2-min').value) || 0;
+
+      const p1Ms = p1Val * 60 * 1000;
+      const p2Ms = p2Val * 60 * 1000;
+
+      if (p1Ms <= 0 && p2Ms <= 0) {
+        showToast("分数を入力してください");
+        return;
+      }
+
+      const startPart = p1Ms > 0 ? 1 : 2;
+      const duration = (startPart === 1) ? p1Ms : p2Ms;
+
+      timerRef.update({
+        part1Min: p1Val,
+        part2Min: p2Val,
+        isRunning: true,
+        isPaused: false,
+        isTransitioning: false,
+        currentPart: startPart,
+        targetEndTime: Date.now() + duration,
+        remainingMs: 0
+      });
+    }
+
+    function togglePause() {
+      if (!localTimerState.isRunning || localTimerState.isTransitioning) return;
+
+      if (!localTimerState.isPaused) {
+        const remainingMs = Math.max(0, localTimerState.targetEndTime - Date.now());
+        timerRef.update({
+          isPaused: true,
+          remainingMs: remainingMs
+        });
+      } else {
+        const newEndTime = Date.now() + (localTimerState.remainingMs || 0);
+        timerRef.update({
+          isPaused: false,
+          targetEndTime: newEndTime
+        });
+      }
+    }
+
+    function skipPart() {
+      if (!localTimerState.isRunning || localTimerState.isTransitioning) return;
+
+      const p1Ms = (localTimerState.part1Min || 0) * 60 * 1000;
+      const p2Ms = (localTimerState.part2Min || 0) * 60 * 1000;
+
+      let nextPart = (localTimerState.currentPart === 1) ? 2 : 1;
+      if (nextPart === 2 && p2Ms <= 0) nextPart = 1;
+      if (nextPart === 1 && p1Ms <= 0) nextPart = 2;
+
+      const duration = (nextPart === 1) ? p1Ms : p2Ms;
+
+      timerRef.update({
+        isRunning: true,
+        isPaused: false,
+        isTransitioning: false,
+        currentPart: nextPart,
+        targetEndTime: Date.now() + duration
+      });
+    }
+
+    function resetTimer() {
+      timerRef.update({
+        isRunning: false,
+        isPaused: false,
+        isTransitioning: false,
+        targetEndTime: 0,
+        remainingMs: 0
+      });
+    }
+
+    // ============================================================
+    // 管理者 / モーダル・認証処理
+    // ============================================================
     function handleFreeButtonClick() {
       if (isFreeMode) {
-        // 解放中の場合はパスワード不要で即時ロック
-        isFreeMode = false;
-        document.body.classList.remove('free-mode');
-        const btn = document.getElementById('btn-free-toggle');
-        btn.innerText = "🔓 操作開放: OFF";
-        btn.classList.remove('active');
-        localStorage.setItem('loop_timer_free_mode', 'false');
+        timerRef.update({ isFreeMode: false });
         showToast('操作制限を有効にしました');
       } else {
-        // 開放ONにする場合はパスワード入力を求める
         openPasswordModal('free');
       }
     }
 
-    // 管理者ボタン押下時
     function handleAdminButtonClick() {
       if (!isAdminUnlocked) {
         openPasswordModal('admin');
@@ -461,53 +688,6 @@
       }
     }
 
-    function saveTimerSettings() {
-      const p1Val = document.getElementById('part1-min').value;
-      const p2Val = document.getElementById('part2-min').value;
-
-      localStorage.setItem('loop_timer_part1', p1Val);
-      localStorage.setItem('loop_timer_part2', p2Val);
-
-      showToast('設定した時間を保存しました');
-    }
-
-    function showToast(message) {
-      const toast = document.getElementById('toast');
-      toast.innerText = message;
-      toast.classList.add('show');
-
-      if (toastTimeout !== null) {
-        clearTimeout(toastTimeout);
-      }
-
-      toastTimeout = setTimeout(() => {
-        toast.classList.remove('show');
-      }, 2000);
-    }
-
-    function loadTimerSettings() {
-      const savedP1 = localStorage.getItem('loop_timer_part1');
-      const savedP2 = localStorage.getItem('loop_timer_part2');
-      const savedFree = localStorage.getItem('loop_timer_free_mode');
-
-      if (savedP1 !== null) {
-        document.getElementById('part1-min').value = savedP1;
-      }
-      if (savedP2 !== null) {
-        document.getElementById('part2-min').value = savedP2;
-      }
-      if (savedFree === 'true') {
-        isFreeMode = true;
-        document.body.classList.add('free-mode');
-        const btn = document.getElementById('btn-free-toggle');
-        if (btn) {
-          btn.innerText = "🔓 操作開放: ON";
-          btn.classList.add('active');
-        }
-      }
-    }
-
-    // モーダルの開閉制御
     function openPasswordModal(action) {
       pendingAction = action;
       const modal = document.getElementById('password-modal');
@@ -528,12 +708,9 @@
     }
 
     function handleModalKeyDown(e) {
-      if (e.key === 'Enter') {
-        submitPassword();
-      }
+      if (e.key === 'Enter') submitPassword();
     }
 
-    // パスワードの認証処理（ハッシュ値による判定）
     async function submitPassword() {
       const input = document.getElementById('admin-pass-input');
       const errorMsg = document.getElementById('modal-error');
@@ -547,13 +724,8 @@
           document.getElementById('btn-admin-toggle').innerText = "🔓 管理者解除中";
           document.getElementById('btn-admin-toggle').classList.add("unlocked");
         } else if (pendingAction === 'free') {
-          isFreeMode = true;
-          document.body.classList.add('free-mode');
-          const btn = document.getElementById('btn-free-toggle');
-          btn.innerText = "🔓 操作開放: ON";
-          btn.classList.add('active');
-          localStorage.setItem('loop_timer_free_mode', 'true');
-          showToast('操作パネルを開放しました（設定保存済み）');
+          timerRef.update({ isFreeMode: true });
+          showToast('操作パネルを開放しました（全端末同期済み）');
         }
         closePasswordModal();
       } else {
@@ -564,171 +736,23 @@
       }
     }
 
-    function stopTimer() {
-      if (timerInterval !== null) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-      }
-      if (intervalTimeout !== null) {
-        clearTimeout(intervalTimeout);
-        intervalTimeout = null;
-      }
-      isTransitioning = false;
-      isPaused = false;
-      isRunning = false;
-      document.body.classList.remove('warning', 'danger', 'interval', 'pause-animation');
-      updateControlButtons();
-    }
-
-    function resetTimer() {
-      stopTimer();
-      document.getElementById('status').innerText = "準備中";
-      document.getElementById('timer').innerText = "00:00";
-    }
-
-    function startTimer() {
-      stopTimer();
-
-      const p1Val = parseFloat(document.getElementById('part1-min').value) || 0;
-      const p2Val = parseFloat(document.getElementById('part2-min').value) || 0;
-
-      part1Ms = p1Val * 60 * 1000;
-      part2Ms = p2Val * 60 * 1000;
-
-      if (part1Ms <= 0 && part2Ms <= 0) {
-        showToast("分数を入力してください");
-        document.getElementById('status').innerText = "準備中";
-        document.getElementById('timer').innerText = "00:00";
-        return;
-      }
-
-      isRunning = true;
-      currentPart = part1Ms > 0 ? 1 : 2;
-      startPart(currentPart);
-
-      timerInterval = setInterval(updateTimer, 100);
-    }
-
-    function startPart(part) {
-      currentPart = part;
-      isTransitioning = false;
-      isPaused = false;
-      document.body.classList.remove('pause-animation');
-      const duration = (currentPart === 1) ? part1Ms : part2Ms;
-      targetEndTime = Date.now() + duration;
-      
-      const pauseBtn = document.getElementById('btn-pause');
-      if (pauseBtn) pauseBtn.innerText = "一時停止";
-      
-      updateControlButtons();
-      updateTimer();
-    }
-
-    function updateTimer() {
-      if (isTransitioning || isPaused) return;
-
-      const now = Date.now();
-      const diffMs = Math.max(0, targetEndTime - now);
-      const diffSec = Math.ceil(diffMs / 1000);
-
-      // 外枠の点滅制御クラスの更新
-      document.body.classList.remove('danger', 'warning');
-      if (diffSec <= 15 && diffSec > 0) {
-        document.body.classList.add('danger');
-      } else if (diffSec <= 30 && diffSec > 0) {
-        document.body.classList.add('warning');
-      }
-
-      // 時間表示
-      const m = String(Math.floor(diffSec / 60)).padStart(2, '0');
-      const s = String(diffSec % 60).padStart(2, '0');
-
-      const label = (currentPart === 1) ? '演奏中' : '転換中';
-      document.getElementById('status').innerText = label;
-      document.getElementById('timer').innerText = `${m}:${s}`;
-
-      if (diffMs <= 0) {
-        triggerPartEnd();
-      }
-    }
-
-    function togglePause() {
-      if (!isRunning || isTransitioning) return;
-
-      const pauseBtn = document.getElementById('btn-pause');
-
-      if (!isPaused) {
-        isPaused = true;
-        remainingMs = Math.max(0, targetEndTime - Date.now());
-        pauseBtn.innerText = "再開";
-        
-        document.body.classList.add('pause-animation');
-
-        const label = (currentPart === 1) ? '演奏中（一時停止）' : '転換中（一時停止）';
-        document.getElementById('status').innerText = label;
-      } else {
-        isPaused = false;
-        targetEndTime = Date.now() + remainingMs;
-        pauseBtn.innerText = "一時停止";
-        
-        document.body.classList.remove('pause-animation');
-        updateTimer();
-      }
-    }
-
-    function getNextPart() {
-      const nextPart = (currentPart === 1) ? 2 : 1;
-      let targetPart = nextPart;
-      if (nextPart === 2 && part2Ms <= 0) targetPart = 1;
-      if (nextPart === 1 && part1Ms <= 0) targetPart = 2;
-      return targetPart;
-    }
-
-    function skipPart() {
-      if (!isRunning || isTransitioning) return;
-      
-      if (intervalTimeout !== null) {
-        clearTimeout(intervalTimeout);
-        intervalTimeout = null;
-      }
-
-      isPaused = false;
-      document.body.classList.remove('pause-animation');
-      const pauseBtn = document.getElementById('btn-pause');
-      if (pauseBtn) pauseBtn.innerText = "一時停止";
-
-      const targetPart = getNextPart();
-      startPart(targetPart);
-    }
-
-    function triggerPartEnd() {
-      isTransitioning = true;
-      document.body.classList.remove('warning', 'danger', 'pause-animation');
-      document.body.classList.add('interval');
-      
-      const endLabel = (currentPart === 1) ? '演奏終了！' : '転換終了！';
-      document.getElementById('status').innerText = endLabel;
-      document.getElementById('timer').innerText = "NEXT...";
-      updateControlButtons();
-
-      const targetPart = getNextPart();
-
-      intervalTimeout = setTimeout(() => {
-        document.body.classList.remove('interval');
-        startPart(targetPart);
-      }, 2000);
-    }
-
-    function updateControlButtons() {
+    function updateControlButtons(active, isRunning) {
       const pauseBtn = document.getElementById('btn-pause');
       const skipBtn = document.getElementById('btn-skip');
       const resetBtn = document.getElementById('btn-reset');
 
-      const active = isRunning && !isTransitioning;
-      
       if (pauseBtn) pauseBtn.disabled = !active;
       if (skipBtn) skipBtn.disabled = !active;
       if (resetBtn) resetBtn.disabled = !isRunning;
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.innerText = message;
+      toast.classList.add('show');
+
+      if (toastTimeout !== null) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toast.classList.remove('show'), 2000);
     }
   </script>
 </body>
