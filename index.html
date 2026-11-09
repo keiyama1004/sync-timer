@@ -4,88 +4,402 @@
   <meta charset="UTF-8">
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>連続タイマー</title>
+  <title>連続ループタイマー</title>
   <style>
-    body { font-family: system-ui, sans-serif; text-align: center; padding-top: 30px; background: #f4f4f9; }
-    #status { font-size: 1.5rem; font-weight: bold; color: #555; margin-bottom: 10px; }
-    #timer { font-size: 5rem; font-weight: bold; color: #333; margin: 10px 0 20px; }
-    .input-group { background: #fff; padding: 20px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .input-row { margin: 10px 0; font-size: 1.1rem; }
-    .input-row input { width: 70px; padding: 8px; font-size: 1rem; text-align: center; border: 1px solid #ccc; border-radius: 6px; }
-    .btn-start { font-size: 1.2rem; padding: 12px 30px; border-radius: 8px; border: none; background: #28a745; color: white; font-weight: bold; cursor: pointer; }
-    .btn-start:hover { background: #218838; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      text-align: center;
+      padding: 10px;
+      background-color: #121212;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #status {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: #ffffff;
+      margin-top: 5px;
+    }
+    
+    /* --------------------------------------------------
+       タイマー枠（ダークモード最適化）
+    -------------------------------------------------- */
+    .timer-box {
+      border: 10px solid #333333;
+      border-radius: 20px;
+      padding: 10px 0;
+      margin: 10px 0;
+      background-color: #000000 !important;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+      width: 96vw;
+      max-width: 96vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex: 1;
+      max-height: 55vh;
+      overflow: hidden;
+    }
+
+    #timer {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+      font-size: clamp(8rem, 36vw, 26rem);
+      font-weight: 2000;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: #ffffff !important;
+      letter-spacing: 0.02em;
+    }
+
+    /* --------------------------------------------------
+       点滅アニメーション設定
+    -------------------------------------------------- */
+    /* 警告（残り30秒以下〜15秒超：黄色↔ダークグレーで2秒周期のゆっくり点滅） */
+    body.warning .timer-box {
+      animation: blink-warning-border 2s steps(1) infinite;
+    }
+
+    @keyframes blink-warning-border {
+      0% { border-color: #333333; }
+      50% { border-color: #ff9800; }
+    }
+
+    /* 危険（残り15秒以下：赤↔ダークグレーで0.4秒周期の高速点滅） */
+    body.danger .timer-box {
+      animation: blink-danger-border 0.4s steps(1) infinite;
+    }
+
+    @keyframes blink-danger-border {
+      0% { border-color: #ff3333; }
+      50% { border-color: #1a0000; }
+    }
+
+    body.interval .timer-box {
+      border-color: #4A5568 !important;
+      animation: none;
+    }
+    body.interval #timer {
+      font-size: clamp(3rem, 12vw, 7rem);
+      color: #888888 !important;
+    }
+
+    /* --------------------------------------------------
+       入力フォーム・操作エリア
+    -------------------------------------------------- */
+    .input-card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      padding: 12px 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      width: 100%;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      color: #e0e0e0;
+    }
+    
+    .input-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .input-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 1.1rem;
+      font-weight: bold;
+    }
+    
+    .input-item input {
+      width: 80px;
+      padding: 6px;
+      font-size: 1.1rem;
+      text-align: center;
+      background: #2a2a2a;
+      color: #ffffff;
+      border: 1px solid #444;
+      border-radius: 6px;
+    }
+    .input-item input:focus {
+      outline: none;
+      border-color: #007bff;
+    }
+
+    /* ボタン共通 */
+    .btn {
+      font-size: 1.1rem;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-start {
+      width: 100%;
+      background: #28a745;
+    }
+    .btn-start:hover {
+      background: #218838;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-group .btn {
+      flex: 1;
+    }
+
+    .btn-pause {
+      background: #d39e00;
+      color: #ffffff;
+    }
+    .btn-pause:hover {
+      background: #b78a00;
+    }
+
+    .btn-skip {
+      background: #0069d9;
+    }
+    .btn-skip:hover {
+      background: #0056b3;
+    }
+
+    /* 無効化（グレーアウト）時のスタイル */
+    .btn:disabled {
+      background: #333333 !important;
+      color: #666666 !important;
+      cursor: not-allowed;
+      transform: none;
+      opacity: 0.6;
+    }
   </style>
 </head>
 <body>
 
-  <h1>連続タイマー</h1>
-  <div id="status">準備中</div>
-  <div id="timer">00:00</div>
+  <div>
+    <div id="status">準備中</div>
+  </div>
 
-  <div class="input-group">
-    <div class="input-row">
-      <label for="part1-min">Part 1:</label>
-      <input type="number" id="part1-min" value="5" min="0" step="0.5"> 分
+  <div class="timer-box">
+    <div id="timer">00:00</div>
+  </div>
+
+  <div class="input-card">
+    <div class="input-rows">
+      <div class="input-item">
+        <label for="part1-min">演奏時間</label>
+        <div>
+          <input type="number" id="part1-min" value="0.5" min="0" step="0.1"> 分
+        </div>
+      </div>
+      <div class="input-item">
+        <label for="part2-min">転換時間</label>
+        <div>
+          <input type="number" id="part2-min" value="0.2" min="0" step="0.1"> 分
+        </div>
+      </div>
     </div>
-    <div class="input-row">
-      <label for="part2-min">Part 2:</label>
-      <input type="number" id="part2-min" value="3" min="0" step="0.5"> 分
+    
+    <button type="button" class="btn btn-start" onclick="startTimer()">タイマー開始</button>
+    
+    <div class="btn-group">
+      <button type="button" id="btn-pause" class="btn btn-pause" onclick="togglePause()" disabled>一時停止</button>
+      <button type="button" id="btn-skip" class="btn btn-skip" onclick="skipPart()" disabled>スキップ</button>
     </div>
-    <br>
-    <button class="btn-start" onclick="startContinuousTimer()">タイマー開始</button>
   </div>
 
   <script>
-    let timerId = null;
+    let timerInterval = null;
+    let intervalTimeout = null;
+    let targetEndTime = 0;
+    let currentPart = 1;
+    let part1Ms = 0;
+    let part2Ms = 0;
+    let isTransitioning = false;
+    let isPaused = false;
+    let remainingMs = 0;
+    let isRunning = false;
 
-    function startContinuousTimer() {
-      // 既存のタイマーがあれば停止
-      if (timerId) cancelAnimationFrame(timerId);
+    function stopTimer() {
+      if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      if (intervalTimeout !== null) {
+        clearTimeout(intervalTimeout);
+        intervalTimeout = null;
+      }
+      isTransitioning = false;
+      isPaused = false;
+      isRunning = false;
+      document.body.className = '';
+      updateControlButtons();
+    }
 
-      const part1Min = parseFloat(document.getElementById('part1-min').value) || 0;
-      const part2Min = parseFloat(document.getElementById('part2-min').value) || 0;
+    function startTimer() {
+      stopTimer();
 
-      const part1Ms = part1Min * 60 * 1000;
-      const part2Ms = part2Min * 60 * 1000;
+      const p1Val = parseFloat(document.getElementById('part1-min').value) || 0;
+      const p2Val = parseFloat(document.getElementById('part2-min').value) || 0;
+
+      part1Ms = p1Val * 60 * 1000;
+      part2Ms = p2Val * 60 * 1000;
 
       if (part1Ms <= 0 && part2Ms <= 0) {
         alert("分数を入力してください。");
+        document.getElementById('status').innerText = "準備中";
+        document.getElementById('timer').innerText = "00:00";
         return;
       }
 
-      const now = Date.now();
-      const part1EndTime = now + part1Ms;
-      const part2EndTime = part1EndTime + part2Ms;
+      isRunning = true;
+      currentPart = part1Ms > 0 ? 1 : 2;
+      startPart(currentPart);
 
-      runTimer(part1EndTime, part2EndTime, part1Ms > 0 ? 1 : 2);
+      timerInterval = setInterval(updateTimer, 100);
     }
 
-    function runTimer(part1EndTime, part2EndTime, currentPart) {
-      function update() {
-        const now = Date.now();
-        const targetEndTime = (currentPart === 1) ? part1EndTime : part2EndTime;
-        const diff = Math.max(0, Math.floor((targetEndTime - now) / 1000));
+    function startPart(part) {
+      currentPart = part;
+      isTransitioning = false;
+      isPaused = false;
+      const duration = (currentPart === 1) ? part1Ms : part2Ms;
+      targetEndTime = Date.now() + duration;
+      
+      const pauseBtn = document.getElementById('btn-pause');
+      if (pauseBtn) pauseBtn.innerText = "一時停止";
+      
+      updateControlButtons();
+      updateTimer();
+    }
 
-        const m = String(Math.floor(diff / 60)).padStart(2, '0');
-        const s = String(diff % 60).padStart(2, '0');
+    function updateTimer() {
+      if (isTransitioning || isPaused) return;
 
-        document.getElementById('status').innerText = `Part ${currentPart} 実行中`;
-        document.getElementById('timer').innerText = `${m}:${s}`;
+      const now = Date.now();
+      const diffMs = Math.max(0, targetEndTime - now);
+      const diffSec = Math.ceil(diffMs / 1000);
 
-        if (diff <= 0) {
-          if (currentPart === 1 && part2EndTime > part1EndTime) {
-            // Part 1 終了後、直ちに Part 2 へ切り替え
-            runTimer(part1EndTime, part2EndTime, 2);
-          } else {
-            // すべて完了
-            document.getElementById('status').innerText = "完了！";
-            document.getElementById('timer').innerText = "終了！";
-          }
-        } else {
-          timerId = requestAnimationFrame(() => setTimeout(update, 200));
-        }
+      // 外枠の点滅制御（30秒以下で黄色・2秒周期 / 15秒以下で赤色・0.4秒周期）
+      if (diffSec <= 15 && diffSec > 0) {
+        document.body.className = 'danger';
+      } else if (diffSec <= 30 && diffSec > 0) {
+        document.body.className = 'warning';
+      } else {
+        document.body.className = '';
       }
-      update();
+
+      // 時間表示
+      const m = String(Math.floor(diffSec / 60)).padStart(2, '0');
+      const s = String(diffSec % 60).padStart(2, '0');
+
+      const label = (currentPart === 1) ? '演奏中' : '転換中';
+      document.getElementById('status').innerText = label;
+      document.getElementById('timer').innerText = `${m}:${s}`;
+
+      if (diffMs <= 0) {
+        triggerPartEnd();
+      }
+    }
+
+    function togglePause() {
+      if (!isRunning || isTransitioning) return;
+
+      const pauseBtn = document.getElementById('btn-pause');
+
+      if (!isPaused) {
+        // 一時停止
+        isPaused = true;
+        remainingMs = Math.max(0, targetEndTime - Date.now());
+        pauseBtn.innerText = "再開";
+        
+        // 一時停止中は点滅アニメーションをストップ
+        document.body.className = '';
+
+        const label = (currentPart === 1) ? '演奏中（一時停止）' : '転換中（一時停止）';
+        document.getElementById('status').innerText = label;
+      } else {
+        // 再開
+        isPaused = false;
+        targetEndTime = Date.now() + remainingMs;
+        pauseBtn.innerText = "一時停止";
+        
+        // 即時にタイマー表示・点滅クラスを再評価
+        updateTimer();
+      }
+    }
+
+    function getNextPart() {
+      const nextPart = (currentPart === 1) ? 2 : 1;
+      let targetPart = nextPart;
+      if (nextPart === 2 && part2Ms <= 0) targetPart = 1;
+      if (nextPart === 1 && part1Ms <= 0) targetPart = 2;
+      return targetPart;
+    }
+
+    function skipPart() {
+      if (!isRunning || isTransitioning) return;
+      
+      if (intervalTimeout !== null) {
+        clearTimeout(intervalTimeout);
+        intervalTimeout = null;
+      }
+
+      isPaused = false;
+      const pauseBtn = document.getElementById('btn-pause');
+      if (pauseBtn) pauseBtn.innerText = "一時停止";
+
+      // インターバル（NEXT...）を挟まず直接次のパートへスキップ
+      const targetPart = getNextPart();
+      startPart(targetPart);
+    }
+
+    function triggerPartEnd() {
+      isTransitioning = true;
+      document.body.className = 'interval';
+      
+      const endLabel = (currentPart === 1) ? '演奏終了！' : '転換終了！';
+      document.getElementById('status').innerText = endLabel;
+      document.getElementById('timer').innerText = "NEXT...";
+      updateControlButtons();
+
+      const targetPart = getNextPart();
+
+      intervalTimeout = setTimeout(() => {
+        startPart(targetPart);
+      }, 2000);
+    }
+
+    function updateControlButtons() {
+      const pauseBtn = document.getElementById('btn-pause');
+      const skipBtn = document.getElementById('btn-skip');
+
+      const active = isRunning && !isTransitioning;
+      
+      if (pauseBtn) pauseBtn.disabled = !active;
+      if (skipBtn) skipBtn.disabled = !active;
     }
   </script>
 </body>
