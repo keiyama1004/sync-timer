@@ -380,8 +380,7 @@
     
     <div class="btn-group">
       <button type="button" id="btn-save" class="btn btn-save" onclick="saveTimerSettings()">保存</button>
-      <button type="button" id="btn-start" class="btn btn-start" onclick="startTimer()">開始</button>
-      <button type="button" id="btn-pause" class="btn btn-pause" onclick="togglePause()" disabled>一時停止</button>
+      <button type="button" id="btn-main" class="btn btn-start" onclick="handleMainButtonClick()">開始</button>
       <button type="button" id="btn-skip" class="btn btn-skip" onclick="skipPart()" disabled>スキップ</button>
       <button type="button" id="btn-reset" class="btn btn-stop" onclick="resetTimer()" disabled>リセット</button>
     </div>
@@ -493,7 +492,7 @@
         document.body.classList.remove('warning', 'danger', 'interval', 'pause-animation');
         document.getElementById('status').innerText = "準備中";
         document.getElementById('timer').innerText = "00:00";
-        updateControlButtons(false, false);
+        updateControlButtons();
         return;
       }
 
@@ -503,7 +502,7 @@
         const endLabel = (state.currentPart === 1) ? '演奏終了！' : '転換終了！';
         document.getElementById('status').innerText = endLabel;
         document.getElementById('timer').innerText = "NEXT...";
-        updateControlButtons(false, true);
+        updateControlButtons();
         return;
       }
 
@@ -543,11 +542,7 @@
       document.getElementById('status').innerText = label;
       document.getElementById('timer').innerText = `${m}:${s}`;
 
-      // 一時停止ボタンテキスト
-      const pauseBtn = document.getElementById('btn-pause');
-      if (pauseBtn) pauseBtn.innerText = state.isPaused ? "再開" : "一時停止";
-
-      updateControlButtons(true, true);
+      updateControlButtons();
 
       // カウント終了時（複数端末から重複発火しないようTransactionで処理）
       if (diffMs <= 0 && !state.isPaused && !state.isTransitioning) {
@@ -589,6 +584,14 @@
     // ============================================================
     // ボタン操作（Firebaseへ状態を送信）
     // ============================================================
+    function handleMainButtonClick() {
+      if (!localTimerState.isRunning) {
+        startTimer();
+      } else {
+        togglePause();
+      }
+    }
+
     function saveTimerSettings() {
       const p1Val = parseFloat(document.getElementById('part1-min').value) || 0;
       const p2Val = parseFloat(document.getElementById('part2-min').value) || 0;
@@ -680,7 +683,6 @@
     // ============================================================
     // 管理者 / モーダル・認証処理
     // ============================================================
-    // 操作開放ボタン押下時 (ONにするときもOFFにするときもパスワードを求める)
     function handleFreeButtonClick() {
       openPasswordModal('free');
     }
@@ -732,7 +734,6 @@
           document.getElementById('btn-admin-toggle').innerText = "🔓 管理者解除中";
           document.getElementById('btn-admin-toggle').classList.add("unlocked");
         } else if (pendingAction === 'free') {
-          // 現在と反対の状態へ切り替えて全端末に同期
           const nextFreeState = !isFreeMode;
           timerRef.update({ isFreeMode: nextFreeState });
           
@@ -751,14 +752,44 @@
       }
     }
 
-    function updateControlButtons(active, isRunning) {
-      const pauseBtn = document.getElementById('btn-pause');
+    // ボタンの動的表示・制御
+    function updateControlButtons() {
+      const state = localTimerState;
+      const mainBtn = document.getElementById('btn-main');
       const skipBtn = document.getElementById('btn-skip');
       const resetBtn = document.getElementById('btn-reset');
 
-      if (pauseBtn) pauseBtn.disabled = !active;
+      if (!state || !state.isRunning) {
+        if (mainBtn) {
+          mainBtn.innerText = "開始";
+          mainBtn.className = "btn btn-start";
+          mainBtn.disabled = false;
+        }
+        if (skipBtn) skipBtn.disabled = true;
+        if (resetBtn) resetBtn.disabled = true;
+        return;
+      }
+
+      // タイマー動作中の場合のメインボタン表示制御
+      if (mainBtn) {
+        if (state.isTransitioning) {
+          mainBtn.innerText = "一時停止";
+          mainBtn.className = "btn btn-pause";
+          mainBtn.disabled = true;
+        } else if (state.isPaused) {
+          mainBtn.innerText = "再開";
+          mainBtn.className = "btn btn-start";
+          mainBtn.disabled = false;
+        } else {
+          mainBtn.innerText = "一時停止";
+          mainBtn.className = "btn btn-pause";
+          mainBtn.disabled = false;
+        }
+      }
+
+      const active = state.isRunning && !state.isTransitioning;
       if (skipBtn) skipBtn.disabled = !active;
-      if (resetBtn) resetBtn.disabled = !isRunning;
+      if (resetBtn) resetBtn.disabled = !state.isRunning;
     }
 
     function showToast(message) {
